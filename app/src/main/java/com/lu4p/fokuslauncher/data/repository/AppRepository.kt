@@ -257,55 +257,6 @@ constructor(
             withContext(Dispatchers.IO) { getArchivedApps() }
 
     /**
-     * Returns launchable package/profile keys for the requested profiles using one launcher query
-     * per profile instead of one query per package.
-     */
-    fun getLaunchableAppKeys(profileKeys: Set<String>): Set<String> {
-        val normalizedProfileKeys =
-                profileKeys
-                        .asSequence()
-                        .map { it.ifBlank { "0" } }
-                        .toSet()
-        if (normalizedProfileKeys.isEmpty()) {
-            return emptySet()
-        }
-
-        val launcherApps = launcherAppsOrNull()
-        val userManager = userManagerOrNull()
-
-        if (launcherApps == null || userManager == null) {
-            return if ("0" in normalizedProfileKeys) {
-                loadInstalledAppsLegacyQuery()
-                        .mapTo(linkedSetOf()) { appMetadataKey(it.packageName, it.userHandle) }
-            } else {
-                emptySet()
-            }
-        }
-
-        val launchableKeys = linkedSetOf<String>()
-        for (user in userManager.userProfiles) {
-            if (privateSpaceManager.isPrivateSpaceProfile(user)) continue
-            val profileKey = if (user == Process.myUserHandle()) "0" else appProfileKey(user)
-            if (profileKey !in normalizedProfileKeys) continue
-
-            val activities =
-                    try {
-                        launcherApps.getActivityList(null, user)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-            for (activity in activities) {
-                if (isArchivedLauncherActivity(activity)) continue
-                val packageName = activity.applicationInfo.packageName
-                if (packageName == context.packageName) continue
-                val userHandle = if (user == Process.myUserHandle()) null else user
-                launchableKeys += appMetadataKey(packageName, userHandle)
-            }
-        }
-        return launchableKeys
-    }
-
-    /**
      * Loads launchable activities per [UserManager.userProfiles] via [LauncherApps.getActivityList],
      * so cloned / parallel / work-profile installs (same package as the primary user) still
      * appear. Private Space is skipped here; those apps stay in the dedicated Private drawer

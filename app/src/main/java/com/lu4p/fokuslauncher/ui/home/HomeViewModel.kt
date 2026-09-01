@@ -488,9 +488,8 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Reloads installed apps and syncs persisted favorites. Returns true when the snapshot looks
-     * incomplete (launchable-but-missing favorites, or a profile with favorites never appeared)
-     * so callers may invalidate and run another pass.
+     * Reloads installed apps without treating absence from a launcher snapshot as an uninstall.
+     * Returns true when favorites are missing from the snapshot so callers may retry once.
      */
     private suspend fun runInstalledAppsRefreshPass(forceReload: Boolean): Boolean {
         if (forceReload) {
@@ -547,61 +546,21 @@ class HomeViewModel @Inject constructor(
         applyInstalledAppsSnapshot(apps)
         val installedAppKeys = apps.map { appMetadataKey(it) }.toSet()
         val archivedAppKeys = _archivedAppKeys.value
-        val nonSentinel = currentFavorites.filterNot { it.isPhoneFavoriteSentinel() }
         val missingFavoriteKeys =
-                nonSentinel
+                currentFavorites
                         .asSequence()
+                        .filterNot { it.isPhoneFavoriteSentinel() }
                         .map { favoriteAppStableKey(it) }
-                        .filterNot(installedAppKeys::contains)
+                        .filterNot { it in installedAppKeys || it in archivedAppKeys }
                         .toSet()
-        val launchableMissing =
-                launchableMissingFavoriteKeysSubset(nonSentinel, missingFavoriteKeys)
-        val favoritesKeptForAbsentProfiles =
-                nonSentinel.filter { fav ->
-                    val key = favoriteAppStableKey(fav)
-                    key in missingFavoriteKeys &&
-                            key !in archivedAppKeys &&
-                            key !in launchableMissing &&
-                            fav.profileKey !in snapshotProfiles
-                }
-        if (favoritesKeptForAbsentProfiles.isNotEmpty()) {
+        if (missingFavoriteKeys.isNotEmpty()) {
             Log.w(
                     TAG,
-                    "keeping ${favoritesKeptForAbsentProfiles.size} favorites for " +
-                            "profiles absent from snapshot: " +
-                            favoritesKeptForAbsentProfiles.joinToString { favoriteLogKey(it) },
+                    "launcher snapshot is missing ${missingFavoriteKeys.size} favorites; " +
+                            "keeping persisted favorites and retrying: $missingFavoriteKeys",
             )
         }
-        val updatedFavorites =
-                currentFavorites.filter {
-                    it.packageName == ShortcutTarget.PHONE_FAVORITE_SENTINEL_PACKAGE ||
-                            favoriteAppStableKey(it) in installedAppKeys ||
-                            favoriteAppStableKey(it) in archivedAppKeys ||
-                            favoriteAppStableKey(it) in launchableMissing ||
-                            it.profileKey !in snapshotProfiles
-                }
-        if (updatedFavorites.size != currentFavorites.size) {
-            val pruned =
-                    currentFavorites
-                            .filter { fav -> updatedFavorites.none { it === fav || it == fav } }
-                            .map(::favoriteLogKey)
-            Log.w(
-                    TAG,
-                    "pruning ${pruned.size} favorites no longer in snapshot: $pruned " +
-                            "(kept=${updatedFavorites.size} snapshotProfiles=$snapshotProfiles)",
-            )
-            preferencesManager.setFavorites(updatedFavorites)
-        }
-        val shouldRetry =
-                launchableMissing.isNotEmpty() || favoritesKeptForAbsentProfiles.isNotEmpty()
-        if (shouldRetry) {
-            Log.i(
-                    TAG,
-                    "refresh will retry (launchableMissing=${launchableMissing.size} " +
-                            "absentProfileFavorites=${favoritesKeptForAbsentProfiles.size})",
-            )
-        }
-        return shouldRetry
+        return missingFavoriteKeys.isNotEmpty()
     }
 
     private fun snapshotProfileKeys(apps: List<AppInfo>, archivedApps: List<AppInfo>): Set<String> {
@@ -618,9 +577,6 @@ class HomeViewModel @Inject constructor(
         val hasSecondaryApps = apps.any { it.userHandle != null }
         return !hasOwnerApps && hasSecondaryApps
     }
-
-    private fun favoriteLogKey(favorite: FavoriteApp): String =
-            "${favorite.profileKey}|${favorite.packageName}"
 
     private fun applyInstalledAppsSnapshot(apps: List<AppInfo>) {
         _allInstalledApps.value = apps
@@ -1809,25 +1765,6 @@ class HomeViewModel @Inject constructor(
         } else {
             Log.i(TAG, "package removed $removedPkg profile=$removedProfileKey; no favorites matched")
         }
-    }
-
-    private fun launchableMissingFavoriteKeysSubset(
-            nonSentinelFavorites: List<FavoriteApp>,
-            missingFavoriteKeys: Set<String>,
-    ): Set<String> {
-        if (missingFavoriteKeys.isEmpty()) return emptySet()
-        return appRepository
-                .getLaunchableAppKeys(
-                        nonSentinelFavorites
-                                .asSequence()
-                                .filter {
-                                    appMetadataKey(it.packageName, it.profileKey) in
-                                            missingFavoriteKeys
-                                }
-                                .map(FavoriteApp::profileKey)
-                                .toSet()
-                )
-                .intersect(missingFavoriteKeys)
     }
 
     private fun endAppMenuIfPhoneFavoriteSentinel(favorite: FavoriteApp): Boolean {

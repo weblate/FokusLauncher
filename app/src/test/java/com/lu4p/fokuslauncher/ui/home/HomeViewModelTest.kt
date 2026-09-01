@@ -180,7 +180,6 @@ class HomeViewModelTest {
         every { appRepository.getAllRenamedApps() } returns flowOf(emptyList())
         every { appRepository.getInstalledApps() } returns emptyList()
         every { appRepository.getAllShortcutActions() } returns emptyList()
-        every { appRepository.getLaunchableAppKeys(any()) } returns emptySet()
         every { appRepository.getRemovedPackages() } returns removedPackages
     }
 
@@ -565,7 +564,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `refreshInstalledApps removes uninstalled favorites`() {
+    fun `refreshInstalledApps does not remove favorites missing from non-empty snapshot`() {
         every { appRepository.getInstalledApps() } returns listOf(
             AppInfo(packageName = "com.lu4p.music", label = "Music", icon = null)
         )
@@ -577,13 +576,7 @@ class HomeViewModelTest {
 
         viewModel.refreshInstalledApps()
         verify(timeout = 2_000) { appRepository.invalidateCache() }
-        coVerify(timeout = 2_000) {
-            preferencesManager.setFavorites(
-                match { favorites ->
-                    favorites.size == 1 && favorites[0].packageName == "com.lu4p.music"
-                }
-            )
-        }
+        coVerify(exactly = 0) { preferencesManager.setFavorites(any()) }
         collectJob.cancel()
     }
 
@@ -611,30 +604,6 @@ class HomeViewModelTest {
         coVerify(exactly = 0) {
             preferencesManager.setFavorites(match { it.size < testFavorites.size })
         }
-    }
-
-    @Test
-    fun `refreshInstalledApps keeps favorites absent from partial snapshot when still launchable`() {
-        every { appRepository.getInstalledApps() } returns listOf(
-            AppInfo(packageName = "com.lu4p.music", label = "Music", icon = null)
-        )
-        every { appRepository.getLaunchableAppKeys(setOf("0")) } returns setOf(
-            appMetadataKey("com.lu4p.work", "0"),
-            appMetadataKey("com.lu4p.social", "0")
-        )
-        val viewModel = createViewModel()
-        val collectJob = CoroutineScope(testDispatcher).launch {
-            viewModel.favorites.collect { }
-        }
-        testDispatcher.scheduler.runCurrent()
-
-        viewModel.refreshInstalledApps()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify(exactly = 0) { preferencesManager.setFavorites(any()) }
-        verify(atLeast = 1) { appRepository.invalidateCache() }
-        verify { appRepository.getLaunchableAppKeys(setOf("0")) }
-        collectJob.cancel()
     }
 
     @Test
@@ -872,7 +841,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `refreshInstalledApps prunes favorites missing from one profile only`() {
+    fun `refreshInstalledApps does not prune favorites missing from one profile`() {
         val workHandle = mockk<android.os.UserHandle>()
         every { workHandle.hashCode() } returns 42
         every { preferencesManager.favoritesFlow } returns flowOf(
@@ -891,8 +860,6 @@ class HomeViewModelTest {
                     userHandle = workHandle,
                 ),
             )
-        every { appRepository.getLaunchableAppKeys(setOf("42")) } returns emptySet()
-
         val viewModel = createViewModel()
         val collectJob = CoroutineScope(testDispatcher).launch { viewModel.favorites.collect { } }
         testDispatcher.scheduler.runCurrent()
@@ -900,16 +867,7 @@ class HomeViewModelTest {
         viewModel.refreshInstalledApps()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        // refreshInstalledApps launches on Dispatchers.IO; wait for the prune write.
-        coVerify(timeout = 2_000) {
-            preferencesManager.setFavorites(
-                match { favorites ->
-                    favorites.size == 1 &&
-                        favorites.single().packageName == "com.lu4p.chrome" &&
-                        favorites.single().profileKey == "0"
-                }
-            )
-        }
+        coVerify(exactly = 0) { preferencesManager.setFavorites(any()) }
         collectJob.cancel()
     }
 
@@ -948,8 +906,6 @@ class HomeViewModelTest {
         )
         every { appRepository.getInstalledApps() } returns
             listOf(AppInfo(packageName = "com.lu4p.chrome", label = "Chrome", icon = null))
-        every { appRepository.getLaunchableAppKeys(setOf("42")) } returns emptySet()
-
         val viewModel = createViewModel()
         val collectJob = CoroutineScope(testDispatcher).launch { viewModel.favorites.collect { } }
         testDispatcher.scheduler.runCurrent()
