@@ -389,58 +389,22 @@ private fun HomeClockWeatherHeader(
     weatherUiState: HomeWeatherUiState,
     screenTimeUiState: HomeScreenTimeUiState,
     showWeather: Boolean,
+    widgetAlignment: HomeWidgetAlignment,
     onClockClick: () -> Unit,
     onWeatherClick: () -> Unit,
     onScreenTimeClick: () -> Unit,
     outlined: Boolean,
 ) {
-    val density = LocalDensity.current
-    val clockStyle = MaterialTheme.typography.displayLarge
-    val weatherTopPad =
-        remember(clockStyle, density.density, density.fontScale) {
-            val lead =
-                ((clockStyle.lineHeight.value - clockStyle.fontSize.value) / 2f)
-                    .coerceAtLeast(0f)
-            with(density) { lead.sp.toDp() }
+    val horizontalAlignment =
+        when (widgetAlignment) {
+            HomeWidgetAlignment.START -> Alignment.Start
+            HomeWidgetAlignment.CENTER -> Alignment.CenterHorizontally
+            HomeWidgetAlignment.END -> Alignment.End
         }
-    val launcherScale =
-        LocalLauncherFontScale.current.coerceIn(LauncherFontScale.MIN, LauncherFontScale.MAX)
-    // Use padding (not offset): offset does not change layout height, so the header Box and
-    // parents can clip or resolve hits as if the weather were still at y=0.
-    val weatherLowerInset =
-        remember(density.density, density.fontScale, launcherScale) {
-            with(density) { (10f * launcherScale).sp.toDp() } + 8.dp
-        }
-    val weatherRowHeight = rememberTitleMediumRowHeight()
-    val weatherTop = weatherTopPad + weatherLowerInset
-    val screenTimeTop =
-        weatherTop + if (showWeather) weatherRowHeight + 4.dp else 0.dp
-    Box(modifier = Modifier.fillMaxWidth()) {
-        if (showWeather) {
-            WeatherWidget(
-                weather = weatherUiState.weather,
-                useFahrenheit = weatherUiState.weatherUseFahrenheit,
-                prominent = false,
-                outlined = outlined,
-                onClick = onWeatherClick,
-                modifier =
-                    Modifier.align(Alignment.TopEnd)
-                        .padding(top = weatherTop),
-            )
-        }
-        if (screenTimeUiState.showWidget) {
-            ScreenTimeWidget(
-                durationText = screenTimeUiState.durationText.orEmpty(),
-                outlined = outlined,
-                onClick = onScreenTimeClick,
-                modifier =
-                    Modifier.align(Alignment.TopEnd)
-                        .offset(y = screenTimeTop),
-            )
-        }
-        Column(
-            modifier = Modifier.align(Alignment.TopStart),
-        ) {
+    Column(
+        horizontalAlignment = horizontalAlignment,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
             ClockWidget(
                 time = clockUiState.currentTime,
                 is24HourFormat = clockUiState.is24HourFormat,
@@ -480,6 +444,23 @@ private fun HomeClockWeatherHeader(
                     }
                 }
             }
+        if (showWeather) {
+            WeatherWidget(
+                weather = weatherUiState.weather,
+                useFahrenheit = weatherUiState.weatherUseFahrenheit,
+                prominent = false,
+                outlined = outlined,
+                onClick = onWeatherClick,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        if (screenTimeUiState.showWidget) {
+            ScreenTimeWidget(
+                durationText = screenTimeUiState.durationText.orEmpty(),
+                outlined = outlined,
+                onClick = onScreenTimeClick,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
@@ -514,7 +495,13 @@ private fun HomeWidgetsSection(
     val showClock = uiState.showHomeClock
     val showWeather = uiState.showHomeWeather && weatherUiState.showWeatherWidget
     val showDateOrBattery = uiState.showHomeDate || uiState.showHomeBattery
-    val weatherRowHeight = rememberTitleMediumRowHeight()
+    val widgetAlignment = HomeWidgetAlignment.from(uiState.homeAlignment)
+    val widgetHorizontalAlignment =
+        when (widgetAlignment) {
+            HomeWidgetAlignment.START -> Alignment.Start
+            HomeWidgetAlignment.CENTER -> Alignment.CenterHorizontally
+            HomeWidgetAlignment.END -> Alignment.End
+        }
 
     when {
         showClock -> {
@@ -523,6 +510,7 @@ private fun HomeWidgetsSection(
                 weatherUiState = weatherUiState,
                 screenTimeUiState = screenTimeUiState,
                 showWeather = showWeather,
+                widgetAlignment = widgetAlignment,
                 onClockClick = onClockClick,
                 onWeatherClick = onWeatherClick,
                 onScreenTimeClick = onScreenTimeClick,
@@ -530,7 +518,10 @@ private fun HomeWidgetsSection(
             )
         }
         showWeather || screenTimeUiState.showWidget -> {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                horizontalAlignment = widgetHorizontalAlignment,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 if (showWeather) {
                     WeatherWidget(
                         weather = weatherUiState.weather,
@@ -538,7 +529,6 @@ private fun HomeWidgetsSection(
                         prominent = false,
                         outlined = outlined,
                         onClick = onWeatherClick,
-                        modifier = Modifier.align(Alignment.TopEnd),
                     )
                 }
                 if (screenTimeUiState.showWidget) {
@@ -547,15 +537,7 @@ private fun HomeWidgetsSection(
                         outlined = outlined,
                         onClick = onScreenTimeClick,
                         modifier =
-                            Modifier.align(Alignment.TopEnd)
-                                .offset(
-                                    y =
-                                        if (showWeather) {
-                                            weatherRowHeight + 4.dp
-                                        } else {
-                                            0.dp
-                                        },
-                                ),
+                            Modifier.padding(top = if (showWeather) 4.dp else 0.dp),
                     )
                 }
             }
@@ -569,6 +551,7 @@ private fun HomeWidgetsSection(
             isCharging = clockUiState.isCharging,
             showDate = uiState.showHomeDate,
             showBattery = uiState.showHomeBattery,
+            alignment = widgetAlignment,
             outlined = outlined,
             onDateClick = onDateClick,
             modifier =
@@ -616,6 +599,7 @@ private fun HomeWidgetsSection(
         if (extraChips.isNotEmpty()) {
             HomeExtraChipsRow(
                 chips = extraChips,
+                alignment = widgetAlignment,
                 outlined = outlined,
                 modifier = Modifier.fillMaxWidth().padding(top = extrasTopPad),
             )
@@ -633,6 +617,7 @@ private fun HomeWidgetsSection(
                 isRunning = pomodoroUiState.isRunning,
                 awaitingDismiss = pomodoroUiState.awaitingDismiss,
                 mode = pomodoroUiState.mode,
+                alignment = widgetAlignment,
                 outlined = outlined,
                 onPlayPause = onPomodoroPlayPause,
                 onDecrease = onPomodoroDecrease,
@@ -653,6 +638,7 @@ private fun HomeWidgetsSection(
                     canSkipToNext = playback.canSkipToNext,
                     like = playback.like,
                     save = playback.save,
+                    alignment = widgetAlignment,
                     outlined = outlined,
                     onOpenApp = onMediaOpenApp,
                     onLike = onMediaLike,
